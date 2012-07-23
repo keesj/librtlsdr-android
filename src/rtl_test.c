@@ -154,7 +154,6 @@ void e4k_benchmark(void)
 	log_info(&log, "E4K L-band gap: %i to %i MHz\n",
 		gap_start/MHZ(1), gap_end/MHZ(1));
 }
-
 int main(int argc, char **argv)
 {
 #ifndef _WIN32
@@ -298,3 +297,164 @@ exit:
 out:
 	return r >= 0 ? r : -r;
 }
+
+#ifdef ANDROID
+
+#include <jni.h>
+
+
+#define MAX_OPEN  10
+static JNIEnv *env;
+static jobject launcherActivity = NULL;
+
+struct fdlist {
+	int fd;
+        int is_native;
+	jobject connection;
+};
+
+static struct  fdlist fd_list[MAX_OPEN] = {
+	{ .fd = -1, 0 , .connection = NULL, },
+	{ .fd = -1, 0 , .connection = NULL, },
+	{ .fd = -1, 0 , .connection = NULL, },
+	{ .fd = -1, 0 , .connection = NULL, },
+	{ .fd = -1, 0 , .connection = NULL, },
+	{ .fd = -1, 0 , .connection = NULL, },
+	{ .fd = -1, 0 , .connection = NULL, },
+	{ .fd = -1, 0 , .connection = NULL, },
+	{ .fd = -1, 0 , .connection = NULL, },
+	{ .fd = -1, 0 , .connection = NULL, },
+};
+
+
+static jfieldID field_context;
+
+struct usb_device* get_device_from_object(JNIEnv* env, jobject connection)
+{
+
+    return (struct usb_device*)(*env)->GetIntField(env, connection, field_context);
+}
+
+int android_java_usbdevice_open(const char *pathname, int mode, ...)
+{
+  jint retval = 0;
+  int i;
+  if (strncmp(pathname,"/sys",4) == 0 ) {
+	int retval  = open(pathname,mode);
+	  for (i =0 ; i < MAX_OPEN ; i++){ /* pick the first free slot */
+		if (fd_list[i].fd == -1){
+			fd_list[i].fd = retval;
+			fd_list[i].is_native =1;
+			fd_list[i].connection = NULL;
+			break;
+		}
+	  }
+	  if (i == MAX_OPEN){
+		log_warn(&log,"MAX_OPEN REACHED\n");
+		return -1;
+  }
+	  return retval;
+  }
+  log_debug(&log,"OPEN  %s, %d\n",pathname,mode);
+  jclass cls = (*env)->GetObjectClass(env, launcherActivity);
+  jmethodID mid = (*env)->GetMethodID(env, cls, "open", "(Ljava/lang/String;)Landroid/hardware/usb/UsbDeviceConnection;");
+  if (mid == 0)
+    return;
+  jstring text = (*env)->NewStringUTF(env, pathname);
+  jobject o  = (*env)->CallObjectMethod(env, launcherActivity, mid, text);
+
+  if (o == NULL){
+	return -1;
+  }
+
+
+  jobject conn = (*env)->NewGlobalRef(env, o);
+  if ( conn == NULL){
+  	log_warn(&log, "usb device connection == null\n");
+	return -1;
+  }
+
+  jclass connectionClass =  (*env)->GetObjectClass(env, o);
+  if (  connectionClass == NULL){
+  	log_warn(&log,"Connection class === null\n");
+	return -1;
+  }
+  mid = (*env)->GetMethodID(env, connectionClass, "getFileDescriptor", "()I");
+  if (mid == 0){
+  	log_warn(&log,"Mid  == 0\n");
+	return -1;
+  }
+  retval   = (*env)->CallIntMethod(env, conn, mid);
+  if (retval < 0){
+  	log_warn(&log,"hanlde(%d) is invalid\n",retval);
+  }
+  retval = dup(retval);
+  if (retval < 0){
+  	log_warn(&log,"dup hanlde(%d) is invalid\n",retval);
+  }
+  for (i =0 ; i < MAX_OPEN ; i++){ /* pick the first free slot */
+	if (fd_list[i].fd == -1){
+		fd_list[i].fd = retval;
+		fd_list[i].is_native = 0;
+		fd_list[i].connection = conn;
+		break;
+	}
+  }
+  if (i == MAX_OPEN){
+  	log_warn(&log,"MAX_OPEN REACHED\n");
+	return -1;
+  }
+  return retval;
+}
+
+int android_java_usbdevice_close(int fd)
+{
+  int i;
+
+  for(i= 0; i < MAX_OPEN; i++){
+	if (fd_list[i].fd == fd){
+		if (fd_list[i].is_native){
+			close(fd);
+			fd_list[i].fd = -1; 
+			fd_list[i].is_native = 0; 
+  			fd_list[i].connection = NULL;
+			return 0;
+		} else {
+			/* call java close */
+			jclass connectionClass =  (*env)->GetObjectClass(env, fd_list[i].connection);
+			if (  connectionClass == NULL){
+				log_warn(&log,"Connection class === null\n");
+				return -1;
+			}
+			jmethodID mid = (*env)->GetMethodID(env, connectionClass, "close", "()V");
+			if (mid == 0){
+				log_warn(&log,"Mid  == 0\n");
+				return -1;
+			}
+			(*env)->CallVoidMethod(env, fd_list[i].connection , mid);
+			fd_list[i].fd = -1; 
+			(*env)->DeleteGlobalRef(env, fd_list[i].connection);
+			fd_list[i].connection = NULL;
+			return 0;
+		}
+	}
+  }
+  log_warn(&log,"Close was called with fh %d but no handle was found\n",fd);
+  return -1;
+}
+
+JNIEXPORT jint JNICALL Java_rtlsdr_android_MainActivity_nativeMain(JNIEnv *envp, jobject objp)
+{
+  log_info(&log, "Starting native\n");
+  struct sigaction sigact;
+  env = envp; /* put env in a global.. for resuse in the same THREAD */
+  //cls = (*env)->GetObjectClass(env, obj); /* put the calling class also there */
+  launcherActivity = (*env)->NewGlobalRef(env, objp);
+  /* inject our open method in the android usbhost lib. the same can probably be done for libusb */
+  usb_device_set_open_close_func(android_java_usbdevice_open, android_java_usbdevice_close);
+  char * args[] = { "rtltest" , "-t" };
+  return main(2,args);
+}
+
+#endif
+
