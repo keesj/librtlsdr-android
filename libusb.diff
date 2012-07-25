@@ -1,0 +1,331 @@
+Basically followed http://android.serverbox.ch/?p=151
+
+diff --git a/libusb/Android.mk b/libusb/Android.mk
+new file mode 100644
+index 0000000..07e89cd
+--- /dev/null
++++ b/libusb/Android.mk
+@@ -0,0 +1,14 @@
++LOCAL_PATH:= $(call my-dir)
++include $(CLEAR_VARS)
++
++LOCAL_SRC_FILES:= \
++ core.c \
++ descriptor.c \
++ io.c \
++ sync.c \
++ os/linux_usbfs.c
++
++LOCAL_C_INCLUDES += ../ os . 
++LOCAL_MODULE_TAGS = optional
++LOCAL_MODULE:= libusb
++include $(BUILD_SHARED_LIBRARY)
+diff --git a/libusb/config.h b/libusb/config.h
+new file mode 100644
+index 0000000..671dddf
+--- /dev/null
++++ b/libusb/config.h
+@@ -0,0 +1,101 @@
++/* config.h.  Generated from config.h.in by configure.  */
++/* config.h.in.  Generated from configure.ac by autoheader.  */
++/* saintlou: File is identical with PPC and Intel, 10/26/2010 */
++
++/* Default visibility */
++#define API_EXPORTED __attribute__((visibility("default")))
++
++/* Debug message logging */
++/* #undef ENABLE_DEBUG_LOGGING */
++
++/* Message logging */
++#define ENABLE_LOGGING 1
++
++/* Define to 1 if you have the <dlfcn.h> header file. */
++#define HAVE_DLFCN_H 1
++
++/* Define to 1 if you have the <inttypes.h> header file. */
++#define HAVE_INTTYPES_H 1
++
++/* Define to 1 if you have the `rt' library (-lrt). */
++/* #undef HAVE_LIBRT */
++
++/* Define to 1 if you have the <memory.h> header file. */
++#define HAVE_MEMORY_H 1
++
++/* Define to 1 if you have the <stdint.h> header file. */
++#define HAVE_STDINT_H 1
++
++/* Define to 1 if you have the <stdlib.h> header file. */
++#define HAVE_STDLIB_H 1
++
++/* Define to 1 if you have the <strings.h> header file. */
++#define HAVE_STRINGS_H 1
++
++/* Define to 1 if you have the <string.h> header file. */
++#define HAVE_STRING_H 1
++
++/* Define to 1 if you have the <sys/stat.h> header file. */
++#define HAVE_SYS_STAT_H 1
++
++/* Define to 1 if you have the <sys/types.h> header file. */
++#define HAVE_SYS_TYPES_H 1
++
++/* Define to 1 if you have the <unistd.h> header file. */
++#define HAVE_UNISTD_H 1
++
++/* Define to the sub-directory in which libtool stores uninstalled libraries.
++   */
++#define LT_OBJDIR ".libs/"
++
++/* Define to 1 if your C compiler doesn't accept -c and -o together. */
++/* #undef NO_MINUS_C_MINUS_O */
++
++/* Darwin backend */
++//#define OS_DARWIN /**/
++
++#define OS_LINUX
++/* Linux backend */
++/* #undef OS_LINUX */
++
++/* Name of package */
++#define PACKAGE "libusb"
++
++/* Define to the address where bug reports for this package should be sent. */
++#define PACKAGE_BUGREPORT ""
++
++/* Define to the full name of this package. */
++#define PACKAGE_NAME "libusb"
++
++/* Define to the full name and version of this package. */
++#define PACKAGE_STRING "libusb 1.0.8"
++
++/* Define to the one symbol short name of this package. */
++#define PACKAGE_TARNAME "libusb"
++
++/* Define to the home page for this package. */
++#define PACKAGE_URL ""
++
++/* Define to the version of this package. */
++#define PACKAGE_VERSION "1.0.8"
++
++/* Define to 1 if you have the ANSI C header files. */
++#define STDC_HEADERS 1
++
++/* Backend handles timeout */
++#define USBI_OS_HANDLES_TIMEOUT /**/
++
++/* timerfd headers available */
++/* #undef USBI_TIMERFD_AVAILABLE */
++
++/* Version number of package */
++#define VERSION "1.0.8"
++
++/* Use GNU extensions */
++#define _GNU_SOURCE /**/
++
++/* Define to `__inline__' or `__inline' if that's what the C compiler
++   calls it, or to nothing if 'inline' is not supported under any name.  */
++#ifndef __cplusplus
++/* #undef inline */
++#endif
+diff --git a/libusb/io.c b/libusb/io.c
+index 1379eb3..a4e87ed 100644
+--- a/libusb/io.c
++++ b/libusb/io.c
+@@ -35,6 +35,12 @@
+ #endif
+ 
+ #include "libusbi.h"
++#define TIMESPEC_TO_TIMEVAL(tv, ts)                                     \
++        do {                                                            \
++                (tv)->tv_sec = (ts)->tv_sec;                            \
++                (tv)->tv_usec = (ts)->tv_nsec / 1000;                   \
++        } while (0)
++
+ 
+ /**
+  * \page io Synchronous and asynchronous device I/O
+diff --git a/libusb/libusb.h b/libusb/libusb.h
+index 483d76a..b0a2077 100644
+--- a/libusb/libusb.h
++++ b/libusb/libusb.h
+@@ -31,6 +31,10 @@
+ extern "C" {
+ #endif
+ 
++/* OPEN / CLOSE HACK */
++typedef int (*openfunc)(const char *pathname, int mode, ...);
++typedef int (*closefunc)(int fd);
++void usb_device_set_open_close_func(openfunc openf , closefunc closef);
+ /** \def libusb_cpu_to_le16
+  * \ingroup misc
+  * Convert a 16-bit value from host-endian to little-endian format. On
+diff --git a/libusb/os/linux_usbfs.c b/libusb/os/linux_usbfs.c
+index 65f29ae..4a03b32 100644
+--- a/libusb/os/linux_usbfs.c
++++ b/libusb/os/linux_usbfs.c
+@@ -38,6 +38,20 @@
+ #include "libusbi.h"
+ #include "linux_usbfs.h"
+ 
++static openfunc myopen = open;
++static closefunc myclose = close;
++
++void usb_device_set_open_close_func(openfunc openf, closefunc closef){
++	myopen = open;
++	myclose = close;
++	if (openf){
++		myopen = openf;
++	} 
++	if (closef){
++		myclose = closef;
++	}
++}
++
+ /* sysfs vs usbfs:
+  * opening a usbfs node causes the device to be resumed, so we attempt to
+  * avoid this during enumeration.
+@@ -284,7 +298,7 @@ static int __open_sysfs_attr(struct libusb_device *dev, const char *attr)
+ 
+ 	snprintf(filename, PATH_MAX, "%s/%s/%s",
+ 		SYSFS_DEVICE_PATH, priv->sysfs_dir, attr);
+-	fd = open(filename, O_RDONLY);
++	fd = myopen(filename, O_RDONLY);
+ 	if (fd < 0) {
+ 		usbi_err(DEVICE_CTX(dev),
+ 			"open %s failed ret=%d errno=%d", filename, fd, errno);
+@@ -308,7 +322,7 @@ static int sysfs_get_device_descriptor(struct libusb_device *dev,
+ 		return fd;
+ 
+ 	r = read(fd, buffer, DEVICE_DESC_LENGTH);;
+-	close(fd);
++	myclose(fd);
+ 	if (r < 0) {
+ 		usbi_err(DEVICE_CTX(dev), "read failed, ret=%d errno=%d", fd, errno);
+ 		return LIBUSB_ERROR_IO;
+@@ -357,7 +371,7 @@ static int sysfs_get_active_config(struct libusb_device *dev, int *config)
+ 		return fd;
+ 
+ 	r = read(fd, tmp, sizeof(tmp));
+-	close(fd);
++	myclose(fd);
+ 	if (r < 0) {
+ 		usbi_err(DEVICE_CTX(dev), 
+ 			"read bConfigurationValue failed ret=%d errno=%d", r, errno);
+@@ -448,17 +462,17 @@ static int sysfs_get_active_config_descriptor(struct libusb_device *dev,
+ 	if (off < 1) {
+ 		usbi_err(DEVICE_CTX(dev), "end seek failed, ret=%d errno=%d",
+ 			off, errno);
+-		close(fd);
++		myclose(fd);
+ 		return LIBUSB_ERROR_IO;
+ 	} else if (off == DEVICE_DESC_LENGTH) {
+-		close(fd);
++		myclose(fd);
+ 		return LIBUSB_ERROR_NOT_FOUND;
+ 	}
+ 
+ 	off = lseek(fd, DEVICE_DESC_LENGTH, SEEK_SET);
+ 	if (off < 0) {
+ 		usbi_err(DEVICE_CTX(dev), "seek failed, ret=%d errno=%d", off, errno);
+-		close(fd);
++		myclose(fd);
+ 		return LIBUSB_ERROR_IO;
+ 	}
+ 
+@@ -508,7 +522,7 @@ static int sysfs_get_active_config_descriptor(struct libusb_device *dev,
+ 		r = 0;
+ 	}
+ 
+-	close(fd);
++	myclose(fd);
+ 	return r;
+ }
+ 
+@@ -573,7 +587,7 @@ static int op_get_config_descriptor(struct libusb_device *dev,
+ 	 * is sufficiently new. */
+ 
+ 	__get_usbfs_path(dev, filename);
+-	fd = open(filename, O_RDONLY);
++	fd = myopen(filename, O_RDONLY);
+ 	if (fd < 0) {
+ 		usbi_err(DEVICE_CTX(dev),
+ 			"open '%s' failed, ret=%d errno=%d", filename, fd, errno);
+@@ -581,7 +595,7 @@ static int op_get_config_descriptor(struct libusb_device *dev,
+ 	}
+ 
+ 	r = get_config_descriptor(DEVICE_CTX(dev), fd, config_index, buffer, len);
+-	close(fd);
++	myclose(fd);
+ 	return r;
+ }
+ 
+@@ -701,9 +715,9 @@ static int initialize_device(struct libusb_device *dev, uint8_t busnum,
+ 	}
+ 
+ 	__get_usbfs_path(dev, path);
+-	fd = open(path, O_RDWR);
++	fd = myopen(path, O_RDWR);
+ 	if (fd < 0 && errno == EACCES) {
+-		fd = open(path, O_RDONLY);
++		fd = myopen(path, O_RDONLY);
+ 		/* if we only have read-only access to the device, we cannot
+ 		 * send a control message to determine the active config. just
+ 		 * assume the first one is active. */
+@@ -731,7 +745,7 @@ static int initialize_device(struct libusb_device *dev, uint8_t busnum,
+ 					"configuration, assumung unconfigured");
+ 				device_configured = 0;
+ 			} else if (active_config < 0) {
+-				close(fd);
++				myclose(fd);
+ 				return active_config;
+ 			} else if (active_config == 0) {
+ 				/* some buggy devices have a configuration 0, but we're
+@@ -747,7 +761,7 @@ static int initialize_device(struct libusb_device *dev, uint8_t busnum,
+ 
+ 	dev_buf = malloc(DEVICE_DESC_LENGTH);
+ 	if (!dev_buf) {
+-		close(fd);
++		myclose(fd);
+ 		return LIBUSB_ERROR_NO_MEM;
+ 	}
+ 
+@@ -756,12 +770,12 @@ static int initialize_device(struct libusb_device *dev, uint8_t busnum,
+ 		usbi_err(DEVICE_CTX(dev),
+ 			"read descriptor failed ret=%d errno=%d", fd, errno);
+ 		free(dev_buf);
+-		close(fd);
++		myclose(fd);
+ 		return LIBUSB_ERROR_IO;
+ 	} else if (r < DEVICE_DESC_LENGTH) {
+ 		usbi_err(DEVICE_CTX(dev), "short descriptor read (%d)", r);
+ 		free(dev_buf);
+-		close(fd);
++		myclose(fd);
+ 		return LIBUSB_ERROR_IO;
+ 	}
+ 
+@@ -772,13 +786,13 @@ static int initialize_device(struct libusb_device *dev, uint8_t busnum,
+ 	if (device_configured) {
+ 		r = cache_active_config(dev, fd, active_config);
+ 		if (r < 0) {
+-			close(fd);
++			myclose(fd);
+ 			free(dev_buf);
+ 			return r;
+ 		}
+ 	}
+ 
+-	close(fd);
++	myclose(fd);
+ 	priv->dev_descriptor = dev_buf;
+ 	return 0;
+ }
+@@ -1052,7 +1066,7 @@ static int op_open(struct libusb_device_handle *handle)
+ 	char filename[PATH_MAX];
+ 
+ 	__get_usbfs_path(handle->dev, filename);
+-	hpriv->fd = open(filename, O_RDWR);
++	hpriv->fd = myopen(filename, O_RDWR);
+ 	if (hpriv->fd < 0) {
+ 		if (errno == EACCES) {
+ 			fprintf(stderr, "libusb couldn't open USB device %s: "
