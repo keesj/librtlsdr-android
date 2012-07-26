@@ -74,7 +74,7 @@ static int android_level_mapping[5] = {
 	ANDROID_LOG_VERBOSE, /* LEVEL_TRACE */
 };
 
-void default_log (struct logger *driver, int level, const char *file, const char *function , int line, const char * fmt, ...)
+static void default_log (struct logger *driver, int level, const char *file, const char *function , int line, const char * fmt, ...)
 {
 	va_list args;
 
@@ -87,7 +87,7 @@ void default_log (struct logger *driver, int level, const char *file, const char
 	__android_log_vprint(android_level_mapping[level],driver->name, fmt, args);
 }
 #else
-void default_log (struct logger *driver, int level, const char *file, const char *function , int line, const char * fmt, ...)
+static void default_log (struct logger *driver, int level, const char *file, const char *function , int line, const char * fmt, ...)
 {
 	va_list args;
 
