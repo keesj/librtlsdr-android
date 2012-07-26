@@ -52,13 +52,13 @@ LOCAL_SHARED_LIBRARIES +=  rtlsdr
 LOCAL_LDLIBS :=  -llog
 include $(BUILD_SHARED_LIBRARY)
 
-## The rtl_tcp program does compile but doesn't work yet
-# it is missing a java entry point and the same kind
-# of open/close override hack as found in rtl_test.c
 include $(CLEAR_VARS)
-LOCAL_MODULE    := rtl_tcp
-LOCAL_SRC_FILES := src/rtl_tcp.c
-LOCAL_C_INCLUDES += $(LOCAL_PATH)/include
-LOCAL_SHARED_LIBRARIES += rtlsdr usb
-include $(BUILD_EXECUTABLE)
+LOCAL_MODULE    := rtltcp
+LOCAL_SRC_FILES := src/rtl_tcp.c src/libusbhelper.c
+LOCAL_C_INCLUDES += $(LOCAL_PATH)/include $(LOCAL_PATH)/android/include
+LOCAL_CFLAGS := -DANDROID -DUSE_LIBLOG
+LOCAL_SHARED_LIBRARIES +=  usb
+LOCAL_SHARED_LIBRARIES +=  rtlsdr
+LOCAL_LDLIBS :=  -llog
+include $(BUILD_SHARED_LIBRARY)
 
