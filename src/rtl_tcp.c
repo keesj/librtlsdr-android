@@ -41,6 +41,14 @@
 
 #include "rtl-sdr.h"
 
+#include "log.h"
+
+static struct logger log = {
+	.name = "rtl_tcp",
+	.log_level = LEVEL_TRACE,
+	.log_func = default_log,
+};
+
 #ifdef _WIN32
 #pragma comment(lib, "ws2_32.lib")
 
@@ -79,7 +87,8 @@ static int do_exit = 0;
 
 void usage(void)
 {
-	printf("rtl_tcp, an I/Q spectrum server for RTL2832 based DVB-T receivers\n\n"
+	log_info(&log,
+		"rtl_tcp, an I/Q spectrum server for RTL2832 based DVB-T receivers\n\n"
 		"Usage:\t[-a listen address]\n"
 		"\t[-p listen port (default: 1234)]\n"
 		"\t[-f frequency to tune to [Hz]]\n"
@@ -112,7 +121,7 @@ BOOL WINAPI
 sighandler(int signum)
 {
 	if (CTRL_C_EVENT == signum) {
-		fprintf(stderr, "Signal caught, exiting!\n");
+		log_warn(&log, "Signal caught, exiting!\n");
 		do_exit = 1;
 		rtlsdr_cancel_async(dev);
 		return TRUE;
@@ -122,7 +131,7 @@ sighandler(int signum)
 #else
 static void sighandler(int signum)
 {
-	fprintf(stderr, "Signal caught, exiting!\n");
+	log_warn(&log, "Signal caught, exiting!\n");
 	do_exit = 1;
 	rtlsdr_cancel_async(dev);
 }
@@ -152,9 +161,9 @@ void rtlsdr_callback(unsigned char *buf, uint32_t len, void *ctx)
 			cur->next = rpt;
 
 			if (num_queued > global_numq)
-				printf("ll+, now %d\n", num_queued);
+				log_info(&log,"ll+, now %d\n", num_queued);
 			else if (num_queued < global_numq)
-				printf("ll-, now %d\n", num_queued);
+				log_info(&log, "ll-, now %d\n", num_queued);
 
 			global_numq = num_queued;
 		}
@@ -184,7 +193,7 @@ static void *tcp_worker(void *arg)
 		r = pthread_cond_timedwait(&cond, &ll_mutex, &ts);
 		if(r == ETIMEDOUT) {
 			pthread_mutex_unlock(&ll_mutex);
-			printf("worker cond timeout\n");
+			log_warn(&log,"worker cond timeout\n");
 			sighandler(0);
 			dead[0]=1;
 			pthread_exit(NULL);
@@ -207,7 +216,7 @@ static void *tcp_worker(void *arg)
 				if(r) {
 					bytessent = send(s,  &curelem->data[index], bytesleft, 0);
 					if (bytessent == SOCKET_ERROR || do_exit) {
-						printf("worker socket error\n");
+						log_warn(&log, "worker socket error\n");
 						sighandler(0);
 						dead[0]=1;
 						pthread_exit(NULL);
@@ -216,7 +225,7 @@ static void *tcp_worker(void *arg)
 						index += bytessent;
 					}
 				} else if(do_exit) {
-						printf("worker socket bye\n");
+						log_debug(&log, "worker socket bye\n");
 						sighandler(0);
 						dead[0]=1;
 						pthread_exit(NULL);
@@ -259,7 +268,7 @@ static void *command_worker(void *arg)
 			if(r) {
 				received = recv(s, (char*)&cmd+(sizeof(cmd)-left), left, 0);
 				if(received == SOCKET_ERROR || do_exit){
-					printf("comm recv socket error\n");
+					log_warn(&log, "comm recv socket error\n");
 					sighandler(0);
 					dead[1]=1;
 					pthread_exit(NULL);
@@ -267,7 +276,7 @@ static void *command_worker(void *arg)
 					left -= received;
 				}
 			} else if(do_exit) {
-				printf("comm recv bye\n");
+				log_debug(&log, "comm recv bye\n");
 				sighandler(0);
 				dead[1] = 1;
 				pthread_exit(NULL);
@@ -275,23 +284,23 @@ static void *command_worker(void *arg)
 		}
 		switch(cmd.cmd) {
 		case 0x01:
-			printf("set freq %d\n", ntohl(cmd.param));
+			log_info(&log, "set freq %d\n", ntohl(cmd.param));
 			rtlsdr_set_center_freq(dev,ntohl(cmd.param));
 			break;
 		case 0x02:
-			printf("set sample rate %d\n", ntohl(cmd.param));
+			log_info(&log, "set sample rate %d\n", ntohl(cmd.param));
 			rtlsdr_set_sample_rate(dev, ntohl(cmd.param));
 			break;
 		case 0x03:
-			printf("set gain mode %d\n", ntohl(cmd.param));
+			log_info(&log, "set gain mode %d\n", ntohl(cmd.param));
 			rtlsdr_set_tuner_gain_mode(dev, ntohl(cmd.param));
 			break;
 		case 0x04:
-			printf("set gain %d\n", ntohl(cmd.param));
+			log_info(&log, "set gain %d\n", ntohl(cmd.param));
 			rtlsdr_set_tuner_gain(dev, ntohl(cmd.param));
 			break;
 		case 0x05:
-			printf("set freq correction %d\n", ntohl(cmd.param));
+			log_info(&log, "set freq correction %d\n", ntohl(cmd.param));
 			rtlsdr_set_freq_correction(dev, ntohl(cmd.param));
 			break;
 		default:
@@ -361,19 +370,19 @@ int main(int argc, char **argv)
 
 	device_count = rtlsdr_get_device_count();
 	if (!device_count) {
-		fprintf(stderr, "No supported devices found.\n");
+		log_warn(&log, "No supported devices found.\n");
 		exit(1);
 	}
 
-	printf("Found %d device(s).\n", device_count);
+	log_info(&log, "Found %d device(s).\n", device_count);
 
 	rtlsdr_open(&dev, dev_index);
 	if (NULL == dev) {
-	fprintf(stderr, "Failed to open rtlsdr device #%d.\n", dev_index);
+	log_warn(&log, "Failed to open rtlsdr device #%d.\n", dev_index);
 		exit(1);
 	}
 
-	printf("Using %s\n", rtlsdr_get_device_name(dev_index));
+	log_info(&log, "Using %s\n", rtlsdr_get_device_name(dev_index));
 #ifndef _WIN32
 	sigact.sa_handler = sighandler;
 	sigemptyset(&sigact.sa_mask);
@@ -389,38 +398,38 @@ int main(int argc, char **argv)
 	/* Set the sample rate */
 	r = rtlsdr_set_sample_rate(dev, samp_rate);
 	if (r < 0)
-		fprintf(stderr, "WARNING: Failed to set sample rate.\n");
+		log_warn(&log, "WARNING: Failed to set sample rate.\n");
 
 	/* Set the frequency */
 	r = rtlsdr_set_center_freq(dev, frequency);
 	if (r < 0)
-		fprintf(stderr, "WARNING: Failed to set center freq.\n");
+		log_warn(&log, "WARNING: Failed to set center freq.\n");
 	else
-		fprintf(stderr, "Tuned to %i Hz.\n", frequency);
+		log_warn(&log, "Tuned to %i Hz.\n", frequency);
 
 	if (0 == gain) {
 		 /* Enable automatic gain */
 		r = rtlsdr_set_tuner_gain_mode(dev, 0);
 		if (r < 0)
-			fprintf(stderr, "WARNING: Failed to enable automatic gain.\n");
+			log_warn(&log, "WARNING: Failed to enable automatic gain.\n");
 	} else {
 		/* Enable manual gain */
 		r = rtlsdr_set_tuner_gain_mode(dev, 1);
 		if (r < 0)
-			fprintf(stderr, "WARNING: Failed to enable manual gain.\n");
+			log_warn(&log, "WARNING: Failed to enable manual gain.\n");
 
 		/* Set the tuner gain */
 		r = rtlsdr_set_tuner_gain(dev, gain);
 		if (r < 0)
-			fprintf(stderr, "WARNING: Failed to set tuner gain.\n");
+			log_warn(&log, "WARNING: Failed to set tuner gain.\n");
 		else
-			fprintf(stderr, "Tuner gain set to %f dB.\n", gain/10.0);
+			log_warn(&log, "Tuner gain set to %f dB.\n", gain/10.0);
 	}
 
 	/* Reset endpoint before we start reading from it (mandatory) */
 	r = rtlsdr_reset_buffer(dev);
 	if (r < 0)
-		fprintf(stderr, "WARNING: Failed to reset buffers.\n");
+		log_warn(&log, "WARNING: Failed to reset buffers.\n");
 
 	pthread_mutex_init(&exit_cond_lock, NULL);
 	pthread_mutex_init(&ll_mutex, NULL);
@@ -447,8 +456,9 @@ int main(int argc, char **argv)
 	#endif
 
 	while(1) {
-		printf("listening...\n");
-		printf("Use the device argument 'rtl_tcp=%s:%d' in OsmoSDR "
+		log_info(&log, "listening...\n");
+		log_info(&log, 
+			"Use the device argument 'rtl_tcp=%s:%d' in OsmoSDR "
 		       "(gr-osmosdr) source\n"
 		       "to receive samples in GRC and control "
 		       "rtl_tcp parameters (frequency, gain, ...).\n",
@@ -472,7 +482,7 @@ int main(int argc, char **argv)
 
 		setsockopt(s, SOL_SOCKET, SO_LINGER, (char *)&ling, sizeof(ling));
 
-		printf("client accepted!\n");
+		log_debug(&log, "client accepted!\n");
 
 		pthread_attr_init(&attr);
 		pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
@@ -490,7 +500,7 @@ int main(int argc, char **argv)
 		if(!dead[1])
 			pthread_join(command_thread, &status);
 
-		printf("all threads dead..\n");
+		log_debug(&log, "all threads dead..\n");
 		curelem = ll_buffers;
 		ll_buffers = 0;
 
@@ -512,6 +522,6 @@ out:
 	#ifdef _WIN32
 	WSACleanup();
 	#endif
-	printf("bye!\n");
+	log_info(&log, "bye!\n");
 	return r >= 0 ? r : -r;
 }
