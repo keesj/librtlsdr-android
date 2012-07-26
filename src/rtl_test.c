@@ -302,11 +302,11 @@ out:
 
 #include <jni.h>
 #include "libusbhelper.h"
-JNIEXPORT jint JNICALL Java_rtlsdr_android_MainActivity_nativeMain(JNIEnv *envp, jobject objp)
+JNIEXPORT jint JNICALL Java_rtlsdr_android_MainActivity_nativeRtlSdrTest(JNIEnv *envp, jobject objp)
 {
   log_info(&log, "Starting native\n");
   init_libusbhelper(envp,objp);
-  char * args[] = { "rtltest" , "-t" };
+  char * args[] = { "rtl_test" , "-t" };
   return main(2,args);
 }
 

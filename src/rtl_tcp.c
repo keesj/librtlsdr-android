@@ -371,7 +371,7 @@ int main(int argc, char **argv)
 	device_count = rtlsdr_get_device_count();
 	if (!device_count) {
 		log_warn(&log, "No supported devices found.\n");
-		exit(1);
+		return EXIT_FAILURE;
 	}
 
 	log_info(&log, "Found %d device(s).\n", device_count);
@@ -525,3 +525,16 @@ out:
 	log_info(&log, "bye!\n");
 	return r >= 0 ? r : -r;
 }
+#ifdef ANDROID
+
+#include <jni.h>
+#include "libusbhelper.h"
+JNIEXPORT jint JNICALL Java_rtlsdr_android_MainActivity_nativeRtlSdrTcp(JNIEnv *envp, jobject objp)
+{
+  log_info(&log, "Starting native tcp\n");
+  init_libusbhelper(envp,objp);
+  char * args[] = { "rtl_tcp" , "-a" , "0.0.0.0" , "-p" , "1234"};
+  return main(5,args);
+}
+
+#endif
