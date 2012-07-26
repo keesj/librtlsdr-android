@@ -44,7 +44,7 @@ include $(BUILD_SHARED_LIBRARY)
 
 include $(CLEAR_VARS)
 LOCAL_MODULE    := rtltest
-LOCAL_SRC_FILES := src/rtl_test.c 
+LOCAL_SRC_FILES := src/rtl_test.c src/libusbhelper.c
 LOCAL_C_INCLUDES += $(LOCAL_PATH)/include $(LOCAL_PATH)/android/include
 LOCAL_CFLAGS := -DANDROID -DUSE_LIBLOG
 LOCAL_SHARED_LIBRARIES +=  usb
