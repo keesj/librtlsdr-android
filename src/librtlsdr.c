@@ -22,6 +22,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #ifndef _WIN32
 #include <unistd.h>
 #define min(a, b) (((a) < (b)) ? (a) : (b))
@@ -48,6 +49,14 @@
 #include "tuner_fc0013.h"
 #include "tuner_fc2580.h"
 #include "tuner_r820t.h"
+
+#include "log.h"
+
+static struct logger log = {
+	.name = "librtsdr",
+	.log_level = LEVEL_TRACE,
+	.log_func = default_log,
+};
 
 typedef struct rtlsdr_tuner_iface {
 	/* tuner interface */
@@ -303,7 +312,7 @@ int rtlsdr_read_array(rtlsdr_dev_t *dev, uint8_t block, uint16_t addr, uint8_t *
 	r = libusb_control_transfer(dev->devh, CTRL_IN, 0, addr, index, array, len, CTRL_TIMEOUT);
 #if 0
 	if (r < 0)
-		fprintf(stderr, "%s failed with %d\n", __FUNCTION__, r);
+		log_warn(&log, "%s failed with %d\n", __FUNCTION__, r);
 #endif
 	return r;
 }
@@ -316,7 +325,7 @@ int rtlsdr_write_array(rtlsdr_dev_t *dev, uint8_t block, uint16_t addr, uint8_t 
 	r = libusb_control_transfer(dev->devh, CTRL_OUT, 0, addr, index, array, len, CTRL_TIMEOUT);
 #if 0
 	if (r < 0)
-		fprintf(stderr, "%s failed with %d\n", __FUNCTION__, r);
+		log_warn(&log, "%s failed with %d\n", __FUNCTION__, r);
 #endif
 	return r;
 }
@@ -382,7 +391,7 @@ uint16_t rtlsdr_read_reg(rtlsdr_dev_t *dev, uint8_t block, uint16_t addr, uint8_
 	r = libusb_control_transfer(dev->devh, CTRL_IN, 0, addr, index, data, len, CTRL_TIMEOUT);
 
 	if (r < 0)
-		fprintf(stderr, "%s failed with %d\n", __FUNCTION__, r);
+		log_warn(&log, "%s failed with %d\n", __FUNCTION__, r);
 
 	reg = (data[1] << 8) | data[0];
 
@@ -406,7 +415,7 @@ int rtlsdr_write_reg(rtlsdr_dev_t *dev, uint8_t block, uint16_t addr, uint16_t v
 	r = libusb_control_transfer(dev->devh, CTRL_OUT, 0, addr, index, data, len, CTRL_TIMEOUT);
 
 	if (r < 0)
-		fprintf(stderr, "%s failed with %d\n", __FUNCTION__, r);
+		log_warn(&log, "%s failed with %d\n", __FUNCTION__, r);
 
 	return r;
 }
@@ -423,7 +432,7 @@ uint16_t rtlsdr_demod_read_reg(rtlsdr_dev_t *dev, uint8_t page, uint16_t addr, u
 	r = libusb_control_transfer(dev->devh, CTRL_IN, 0, addr, index, data, len, CTRL_TIMEOUT);
 
 	if (r < 0)
-		fprintf(stderr, "%s failed with %d\n", __FUNCTION__, r);
+		log_warn(&log, "%s failed with %d\n", __FUNCTION__, r);
 
 	reg = (data[1] << 8) | data[0];
 
@@ -447,7 +456,7 @@ int rtlsdr_demod_write_reg(rtlsdr_dev_t *dev, uint8_t page, uint16_t addr, uint1
 	r = libusb_control_transfer(dev->devh, CTRL_OUT, 0, addr, index, data, len, CTRL_TIMEOUT);
 
 	if (r < 0)
-		fprintf(stderr, "%s failed with %d\n", __FUNCTION__, r);
+		log_warn(&log, "%s failed with %d\n", __FUNCTION__, r);
 
 	rtlsdr_demod_read_reg(dev, 0x0a, 0x01, 1);
 
@@ -888,7 +897,7 @@ int rtlsdr_set_sample_rate(rtlsdr_dev_t *dev, uint32_t samp_rate)
 	real_rate = (rtl_freq * TWO_POW(22)) / rsamp_ratio;
 
 	if ( ((double)samp_rate) != real_rate )
-		fprintf(stderr, "Exact sample rate is: %f Hz\n", real_rate);
+		log_info(&log, "Exact sample rate is: %f Hz\n", real_rate);
 
 	if (dev->tuner && dev->tuner->set_bw) {
 		rtlsdr_set_i2c_repeater(dev, 1);
@@ -1165,7 +1174,7 @@ int rtlsdr_open(rtlsdr_dev_t **out_dev, uint32_t index)
 	r = libusb_open(device, &dev->devh);
 	if (r < 0) {
 		libusb_free_device_list(list, 1);
-		fprintf(stderr, "usb_open error %d\n", r);
+		log_warn(&log, "usb_open error %d\n", r);
 		goto err;
 	}
 
@@ -1173,7 +1182,7 @@ int rtlsdr_open(rtlsdr_dev_t **out_dev, uint32_t index)
 
 	r = libusb_claim_interface(dev->devh, 0);
 	if (r < 0) {
-		fprintf(stderr, "usb_claim_interface error %d\n", r);
+		log_warn(&log, "usb_claim_interface error %d\n", r);
 		goto err;
 	}
 
@@ -1186,14 +1195,14 @@ int rtlsdr_open(rtlsdr_dev_t **out_dev, uint32_t index)
 
 	reg = rtlsdr_i2c_read_reg(dev, E4K_I2C_ADDR, E4K_CHECK_ADDR);
 	if (reg == E4K_CHECK_VAL) {
-		fprintf(stderr, "Found Elonics E4000 tuner\n");
+		log_info(&log, "Found Elonics E4000 tuner\n");
 		dev->tuner_type = RTLSDR_TUNER_E4000;
 		goto found;
 	}
 
 	reg = rtlsdr_i2c_read_reg(dev, FC0013_I2C_ADDR, FC0013_CHECK_ADDR);
 	if (reg == FC0013_CHECK_VAL) {
-		fprintf(stderr, "Found Fitipower FC0013 tuner\n");
+		log_info(&log, "Found Fitipower FC0013 tuner\n");
 		dev->tuner_type = RTLSDR_TUNER_FC0013;
 		goto found;
 	}
@@ -1228,14 +1237,14 @@ int rtlsdr_open(rtlsdr_dev_t **out_dev, uint32_t index)
 
 	reg = rtlsdr_i2c_read_reg(dev, FC2580_I2C_ADDR, FC2580_CHECK_ADDR);
 	if ((reg & 0x7f) == FC2580_CHECK_VAL) {
-		fprintf(stderr, "Found FCI 2580 tuner\n");
+		log_info(&log, "Found FCI 2580 tuner\n");
 		dev->tuner_type = RTLSDR_TUNER_FC2580;
 		goto found;
 	}
 
 	reg = rtlsdr_i2c_read_reg(dev, FC0012_I2C_ADDR, FC0012_CHECK_ADDR);
 	if (reg == FC0012_CHECK_VAL) {
-		fprintf(stderr, "Found Fitipower FC0012 tuner\n");
+		log_info(&log, "Found Fitipower FC0012 tuner\n");
 		rtlsdr_set_gpio_output(dev, 6);
 		dev->tuner_type = RTLSDR_TUNER_FC0012;
 		goto found;
@@ -1439,7 +1448,7 @@ int rtlsdr_read_async(rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t cb, void *ctx,
 	while (RTLSDR_INACTIVE != dev->async_status) {
 		r = libusb_handle_events_timeout(dev->ctx, &tv);
 		if (r < 0) {
-			/*fprintf(stderr, "handle_events returned: %d\n", r);*/
+			/*log_warn(&log, "handle_events returned: %d\n", r);*/
 			if (r == LIBUSB_ERROR_INTERRUPTED) /* stray signal */
 				continue;
 			break;

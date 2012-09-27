@@ -21,6 +21,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 
 #ifndef _WIN32
 #include <unistd.h>
@@ -30,6 +31,14 @@
 #endif
 
 #include "rtl-sdr.h"
+
+#include "log.h"
+
+static struct logger log = {
+	.name = "rtl_test",
+	.log_level = LEVEL_TRACE,
+	.log_func = default_log,
+};
 
 #define DEFAULT_SAMPLE_RATE		2048000
 #define DEFAULT_ASYNC_BUF_NUMBER	32
@@ -44,7 +53,7 @@ static rtlsdr_dev_t *dev = NULL;
 
 void usage(void)
 {
-	fprintf(stderr,
+	log_info(&log,
 		"rtl_test, a benchmark tool for RTL2832 based DVB-T receivers\n\n"
 		"Usage:\n"
 		"\t[-s samplerate (default: 2048000 Hz)]\n"
@@ -60,7 +69,7 @@ BOOL WINAPI
 sighandler(int signum)
 {
 	if (CTRL_C_EVENT == signum) {
-		fprintf(stderr, "Signal caught, exiting!\n");
+		log_warn(&log, "Signal caught, exiting!\n");
 		do_exit = 1;
 		rtlsdr_cancel_async(dev);
 		return TRUE;
@@ -70,7 +79,7 @@ sighandler(int signum)
 #else
 static void sighandler(int signum)
 {
-	fprintf(stderr, "Signal caught, exiting!\n");
+	log_warn(&log, "Signal caught, exiting!\n");
 	do_exit = 1;
 	rtlsdr_cancel_async(dev);
 }
@@ -97,7 +106,7 @@ static void rtlsdr_callback(unsigned char *buf, uint32_t len, void *ctx)
 	}
 
 	if (lost)
-		printf("lost at least %d bytes\n", lost);
+		log_info(&log, "lost at least %d bytes\n", lost);
 }
 
 void e4k_benchmark(void)
@@ -105,7 +114,7 @@ void e4k_benchmark(void)
 	uint32_t freq, gap_start = 0, gap_end = 0;
 	uint32_t range_start = 0, range_end = 0;
 
-	fprintf(stderr, "Benchmarking E4000 PLL...\n");
+	log_info(&log, "Benchmarking E4000 PLL...\n");
 
 	/* find tuner range start */
 	for (freq = MHZ(70); freq > MHZ(1); freq -= MHZ(1)) {
@@ -139,10 +148,10 @@ void e4k_benchmark(void)
 		}
 	}
 
-	fprintf(stderr, "E4K range: %i to %i MHz\n",
+	log_info(&log, "E4K range: %i to %i MHz\n",
 		range_start/MHZ(1) + 1, range_end/MHZ(1) - 1);
 
-	fprintf(stderr, "E4K L-band gap: %i to %i MHz\n",
+	log_info(&log, "E4K L-band gap: %i to %i MHz\n",
 		gap_start/MHZ(1), gap_end/MHZ(1));
 }
 
@@ -188,11 +197,11 @@ int main(int argc, char **argv)
 
 	if(out_block_size < MINIMAL_BUF_LENGTH ||
 	   out_block_size > MAXIMAL_BUF_LENGTH ){
-		fprintf(stderr,
+		log_warn(&log,
 			"Output block size wrong value, falling back to default\n");
-		fprintf(stderr,
+		log_warn(&log,
 			"Minimal length: %u\n", MINIMAL_BUF_LENGTH);
-		fprintf(stderr,
+		log_warn(&log,
 			"Maximal length: %u\n", MAXIMAL_BUF_LENGTH);
 		out_block_size = DEFAULT_BUF_LENGTH;
 	}
@@ -201,22 +210,21 @@ int main(int argc, char **argv)
 
 	device_count = rtlsdr_get_device_count();
 	if (!device_count) {
-		fprintf(stderr, "No supported devices found.\n");
+		log_warn(&log, "No supported devices found.\n");
 		exit(1);
 	}
 
-	fprintf(stderr, "Found %d device(s):\n", device_count);
+	log_info(&log, "Found %d device(s):\n", device_count);
 	for (i = 0; i < device_count; i++)
-		fprintf(stderr, "  %d:  %s\n", i, rtlsdr_get_device_name(i));
-	fprintf(stderr, "\n");
+		log_info(&log, "  %d:  %s\n", i, rtlsdr_get_device_name(i));
 
-	fprintf(stderr, "Using device %d: %s\n",
+	log_info(&log, "Using device %d: %s\n",
 		dev_index,
 		rtlsdr_get_device_name(dev_index));
 
 	r = rtlsdr_open(&dev, dev_index);
 	if (r < 0) {
-		fprintf(stderr, "Failed to open rtlsdr device #%d.\n", dev_index);
+		log_warn(&log, "Failed to open rtlsdr device #%d.\n", dev_index);
 		exit(1);
 	}
 #ifndef _WIN32
@@ -231,23 +239,22 @@ int main(int argc, char **argv)
 	SetConsoleCtrlHandler( (PHANDLER_ROUTINE) sighandler, TRUE );
 #endif
 	count = rtlsdr_get_tuner_gains(dev, NULL);
-	fprintf(stderr, "Supported gain values (%d): ", count);
+	log_info(&log, "Supported gain values (%d): ", count);
 
 	count = rtlsdr_get_tuner_gains(dev, gains);
 	for (i = 0; i < count; i++)
-		fprintf(stderr, "%.1f ", gains[i] / 10.0);
-	fprintf(stderr, "\n");
+		log_info(&log, "%.1f ", gains[i] / 10.0);
 
 	/* Set the sample rate */
 	r = rtlsdr_set_sample_rate(dev, samp_rate);
 	if (r < 0)
-		fprintf(stderr, "WARNING: Failed to set sample rate.\n");
+		log_warn(&log, "WARNING: Failed to set sample rate.\n");
 
 	if (tuner_benchmark) {
 		if (rtlsdr_get_tuner_type(dev) == RTLSDR_TUNER_E4000)
 			e4k_benchmark();
 		else
-			fprintf(stderr, "No E4000 tuner found, aborting.\n");
+			log_warn(&log, "No E4000 tuner found, aborting.\n");
 
 		goto exit;
 	}
@@ -258,32 +265,32 @@ int main(int argc, char **argv)
 	/* Reset endpoint before we start reading from it (mandatory) */
 	r = rtlsdr_reset_buffer(dev);
 	if (r < 0)
-		fprintf(stderr, "WARNING: Failed to reset buffers.\n");
+		log_warn(&log, "WARNING: Failed to reset buffers.\n");
 
 	if (sync_mode) {
-		fprintf(stderr, "Reading samples in sync mode...\n");
+		log_info(&log, "Reading samples in sync mode...\n");
 		while (!do_exit) {
 			r = rtlsdr_read_sync(dev, buffer, out_block_size, &n_read);
 			if (r < 0) {
-				fprintf(stderr, "WARNING: sync read failed.\n");
+				log_warn(&log, "WARNING: sync read failed.\n");
 				break;
 			}
 
 			if ((uint32_t)n_read < out_block_size) {
-				fprintf(stderr, "Short read, samples lost, exiting!\n");
+				log_warn(&log, "Short read, samples lost, exiting!\n");
 				break;
 			}
 		}
 	} else {
-		fprintf(stderr, "Reading samples in async mode...\n");
+		log_info(&log, "Reading samples in async mode...\n");
 		r = rtlsdr_read_async(dev, rtlsdr_callback, NULL,
 				      DEFAULT_ASYNC_BUF_NUMBER, out_block_size);
 	}
 
 	if (do_exit)
-		fprintf(stderr, "\nUser cancel, exiting...\n");
+		log_info(&log, "\nUser cancel, exiting...\n");
 	else
-		fprintf(stderr, "\nLibrary error %d, exiting...\n", r);
+		log_warn(&log, "\nLibrary error %d, exiting...\n", r);
 
 exit:
 	rtlsdr_close(dev);
