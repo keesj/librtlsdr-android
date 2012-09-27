@@ -35,6 +35,7 @@ LOCAL_SRC_FILES := \
     src/tuner_e4k.c \
     src/tuner_fc0012.c \
     src/tuner_fc0013.c \
+    src/tuner_r820t.c \
     src/tuner_fc2580.c
 LOCAL_LDLIBS :=  -llog
 LOCAL_CFLAGS := -DANDROID -DUSE_LIBLOG
